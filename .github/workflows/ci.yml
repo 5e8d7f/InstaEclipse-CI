@@ -43,8 +43,11 @@ jobs:
           java-version: '17'
           cache: 'gradle'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      # The runner image preinstalls the SDK; accept licenses only (the
+      # legacy 'tools' package is gone and fails sdkmanager).
+      - name: Accept Android SDK licenses
+        run: |
+          yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
       - name: Grant execute permission to gradlew
         run: chmod +x ./gradlew
