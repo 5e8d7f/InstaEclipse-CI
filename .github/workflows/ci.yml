@@ -166,11 +166,12 @@ jobs:
         id: patch
         env:
           BASE_APK: ${{ steps.extract.outputs.base_apk }}
-          MODULE_APK: ${{ needs.build.outputs.module-apk }}
           IG_VERSION: ${{ steps.ig.outputs.version }}
         run: |
           set -euo pipefail
           mkdir -p patched
+          MODULE_APK="$(find module -name '*.apk' | head -1)"
+          test -n "$MODULE_APK"
           bash scripts/patch.sh "$BASE_APK" "$MODULE_APK" patched "$IG_VERSION"
           ls -la patched
 
