@@ -186,13 +186,18 @@ jobs:
           ls -la patched
 
       - name: Verify patched APK
+        id: verify
+        env:
+          BASE_APK: ${{ steps.extract.outputs.base_apk }}
         run: |
           set -euo pipefail
           PATCHED="$(find patched -name '*.apk' | head -1)"
           test -n "$PATCHED"
-          unzip -l "$PATCHED" | grep -E 'classes.*\.dex|assets/.*\.jar' | head -10
+          MODULE_APK="$(find module -name '*.apk' | head -1)"
+          bash scripts/verify.sh "$PATCHED" "$BASE_APK" "$MODULE_APK"
           echo "Patched APK: $PATCHED"
           sha256sum "$PATCHED"
+          echo "patched_apk=$PWD/$PATCHED" >> "$GITHUB_OUTPUT"
 
       - name: Upload patched Instagram
         uses: actions/upload-artifact@v4
