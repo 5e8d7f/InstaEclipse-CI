@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    package="ps.reso.instaeclipse">
+
+
+    <application
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.InstaEclipse"
+        tools:targetApi="31">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".mods.devops.config.JsonImportActivity"
+            android:exported="true"
+            android:theme="@style/Theme.InstaEclipse">
+        </activity>
+
+        <activity
+            android:name=".mods.devops.config.JsonExportActivity"
+            android:exported="true"
+            android:theme="@style/Theme.InstaEclipse" />
+
+        <activity
+            android:name=".mods.location.LocationPickerActivity"
+            android:exported="true"
+            android:theme="@style/Theme.InstaEclipse" />
+
+        <activity
+            android:name=".ui.theme.ThemeCustomizerActivity"
+            android:exported="true"
+            android:theme="@style/Theme.InstaEclipse" />
+
+        <!-- "Download with InstaEclipse" share target for Instagram post/reel links (#236). -->
+        <activity
+            android:name=".share.ShareDownloadActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:label="@string/share_dl_label"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
+        <!-- Companion-app service: receives downloaded file (via ParcelFileDescriptor) from the
+             Xposed module (running in Instagram's process) and writes it to the SAF folder
+             whose permission belongs to the companion app. -->
+        <service
+            android:name=".mods.media.DownloadSaveService"
+            android:exported="true"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- Logs tab: hands Instagram's hooked process an append-only FD on a file in the
+             companion's storage so module logs survive Instagram being backgrounded/killed.
+             Only supported Instagram packages may open it (checked in openFile). -->
+        <provider
+            android:name=".utils.log.LogMirrorProvider"
+            android:authorities="ps.reso.instaeclipse.logmirror"
+            android:exported="true" />
+
+        <!-- Settings sync, Instagram -> companion: the hooked Instagram process pushes its
+             settings into the companion's copy after changes made in its own menu. Only
+             supported Instagram packages may call it (checked in call()). -->
+        <provider
+            android:name=".utils.core.PrefsSyncProvider"
+            android:authorities="ps.reso.instaeclipse.prefsync"
+            android:exported="true" />
+
+        <!-- Xposed Meta-data -->
+        <meta-data
+            android:name="xposedmodule"
+            android:value="true" />
+        <meta-data
+            android:name="xposeddescription"
+            android:value="Enhance your Instagram experience" />
+        <meta-data
+            android:name="xposedminversion"
+            android:value="82" />
+        <meta-data
+            android:name="xposedsharedprefs"
+            android:value="true" />
+        <meta-data
+            android:name="xposedscope"
+            android:resource="@array/target_app" />
+    </application>
+
+    <!-- Permissions -->
+    <!-- Package visibility: only the Instagram variants in CommonUtils.SUPPORTED_PACKAGES
+         (instead of QUERY_ALL_PACKAGES). Downloads go through the SAF folder the user picks,
+         so no storage permissions are needed. -->
+    <queries>
+        <package android:name="com.instagram.android" />
+        <package android:name="com.instagold.android" />
+        <package android:name="com.instaflux.app" />
+        <package android:name="com.myinsta.android" />
+        <package android:name="cc.honista.app" />
+        <package android:name="com.instaprime.android" />
+        <package android:name="com.instafel.android" />
+        <package android:name="com.instadm.android" />
+        <package android:name="com.dfistagram.android" />
+        <package android:name="com.Instander.android" />
+        <package android:name="com.aero.instagram" />
+        <package android:name="com.instapro.android" />
+        <package android:name="com.instaflow.android" />
+        <package android:name="com.instagram1.android" />
+        <package android:name="com.instagram2.android" />
+        <package android:name="com.instagramclone.android" />
+        <package android:name="com.instaclone.android" />
+    </queries>
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Signature permission guarding the companion -> Instagram broadcast bridge. Receivers
+         registered inside the hooked process require senders to hold it, so only this APK
+         (signed with the same key) can change settings there. See IpcSecurity. -->
+    <permission
+        android:name="ps.reso.instaeclipse.permission.MODULE_IPC"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="ps.reso.instaeclipse.permission.MODULE_IPC" />
+
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- Foreground service (required API 28+) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- dataSync foreground service type (required API 34+) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Post notifications (required API 33+ to show download progress) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+
+</manifest>

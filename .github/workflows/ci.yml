@@ -1,0 +1,194 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      instagram_version:
+        description: 'Instagram version to patch (APKPure)'
+        required: false
+        default: '451.0.0.53.80'
+      arch:
+        description: 'APKPure arch header for the split bundle'
+        required: false
+        default: 'arm64-v8a'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build module APK
+    runs-on: blacksmith-8vcpu-ubuntu-2404
+    outputs:
+      module-apk: ${{ steps.build.outputs.module_apk }}
+      version-name: ${{ steps.meta.outputs.version_name }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Grant execute permission to gradlew
+        run: chmod +x ./gradlew
+
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest
+
+      - name: Build debug APK
+        id: build
+        run: |
+          ./gradlew assembleDebug
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          test -f "$APK"
+          mv "$APK" app/build/outputs/apk/debug/InstaEclipse-debug.apk
+          VERSION=$(python3 -c "import json;print(json.load(open('version.json'))['latest_version'])")
+          echo "module_apk=$PWD/app/build/outputs/apk/debug/InstaEclipse-debug.apk" >> "$GITHUB_OUTPUT"
+          echo "Module version: $VERSION"
+
+      - name: Read module version
+        id: meta
+        run: echo "version_name=$(python3 -c "import json;print(json.load(open('version.json'))['latest_version'])")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload module APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: instaeclipse-module
+          path: app/build/outputs/apk/debug/InstaEclipse-debug.apk
+          if-no-files-found: error
+
+  patch:
+    name: Patch Instagram
+    needs: build
+    runs-on: blacksmith-8vcpu-ubuntu-2404
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Download module APK
+        uses: actions/download-artifact@v4
+        with:
+          name: instaeclipse-module
+          path: module
+
+      - name: Resolve Instagram version
+        id: ig
+        env:
+          DEFAULT_VERSION: '451.0.0.53.80'
+        run: |
+          REQUESTED="${{ inputs.instagram_version }}"
+          VERSION="${REQUESTED:-$DEFAULT_VERSION}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Patching Instagram $VERSION"
+
+      - name: Install apkeep
+        env:
+          APKEEP_VERSION: '1.1.0'
+        run: |
+          gh release download "$APKEEP_VERSION" -R EFForg/apkeep -p apkeep-x86_64-unknown-linux-gnu -O /usr/local/bin/apkeep --clobber
+          chmod +x /usr/local/bin/apkeep
+          apkeep --help
+
+      - name: Download Instagram from APKPure
+        id: dl
+        env:
+          IG_VERSION: ${{ steps.ig.outputs.version }}
+          ARCH: ${{ inputs.arch }}
+        run: |
+          mkdir -p download
+          if [ -n "$ARCH" ]; then
+            apkeep -a "com.instagram.android@${IG_VERSION}" -d apk-pure \
+              -o "acknowledge_dangers=true,arch=${ARCH}" download
+          else
+            apkeep -a "com.instagram.android@${IG_VERSION}" -d apk-pure \
+              -o "acknowledge_dangers=true" download
+          fi
+          ls -la download
+
+      - name: Extract base APK
+        id: extract
+        run: |
+          set -euo pipefail
+          SRC="$(find download -name '*.xapk' -o -name '*.apk' | head -1)"
+          test -n "$SRC"
+          if [ "${SRC##*.}" = "xapk" ]; then
+            mkdir -p xapk
+            unzip -q -o "$SRC" -d xapk
+            BASE="$(python3 -c "
+          import json,sys
+          m=json.load(open('xapk/manifest.json'))
+          print(next(s['file'] for s in m['split_apks'] if s['id']=='base'))
+          ")"
+            mv "xapk/$BASE" instagram.apk
+            echo "Splits in bundle: $(python3 -c "import json;print(','.join(json.load(open('xapk/manifest.json'))['split_configs']) or 'none')")"
+          else
+            cp "$SRC" instagram.apk
+          fi
+          test -f instagram.apk
+          unzip -l instagram.apk | head -5
+          echo "base_apk=$PWD/instagram.apk" >> "$GITHUB_OUTPUT"
+
+      - name: Download LSPatch CLI
+        id: lspatch
+        env:
+          LSPATCH_TAG: 'v1.2'
+          LSPATCH_JAR: 'lspatch-v1.2-487-release.jar'
+        run: |
+          curl -fsSL -o lspatch.jar \
+            "https://github.com/JingMatrix/LSPatch/releases/download/${LSPATCH_TAG}/${LSPATCH_JAR}"
+          ls -la lspatch.jar
+
+      - name: Patch Instagram with InstaEclipse
+        id: patch
+        run: |
+          set -euo pipefail
+          mkdir -p patched
+          java -jar lspatch.jar "${{ steps.extract.outputs.base_apk }}" \
+            -m "${{ needs.build.outputs.module-apk }}" \
+            --injectdex \
+            -l 2 \
+            -o patched \
+            -f \
+            -v
+          ls -la patched
+
+      - name: Verify patched APK
+        run: |
+          set -euo pipefail
+          PATCHED="$(find patched -name '*.apk' | head -1)"
+          test -n "$PATCHED"
+          unzip -l "$PATCHED" | grep -E 'classes.*\.dex|assets/.*\.jar' | head -10
+          echo "Patched APK: $PATCHED"
+          sha256sum "$PATCHED"
+
+      - name: Upload patched Instagram
+        uses: actions/upload-artifact@v4
+        with:
+          name: instagram-patched
+          path: |
+            patched/*.apk
+          if-no-files-found: error
+          retention-days: 7
