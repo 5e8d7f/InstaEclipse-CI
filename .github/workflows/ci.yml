@@ -164,16 +164,14 @@ jobs:
 
       - name: Patch Instagram with InstaEclipse
         id: patch
+        env:
+          BASE_APK: ${{ steps.extract.outputs.base_apk }}
+          MODULE_APK: ${{ needs.build.outputs.module-apk }}
+          IG_VERSION: ${{ steps.ig.outputs.version }}
         run: |
           set -euo pipefail
           mkdir -p patched
-          java -jar lspatch.jar "${{ steps.extract.outputs.base_apk }}" \
-            -m "${{ needs.build.outputs.module-apk }}" \
-            --injectdex \
-            -l 2 \
-            -o patched \
-            -f \
-            -v
+          bash scripts/patch.sh "$BASE_APK" "$MODULE_APK" patched "$IG_VERSION"
           ls -la patched
 
       - name: Verify patched APK
