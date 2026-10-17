@@ -107,6 +107,7 @@ jobs:
       - name: Install apkeep
         env:
           APKEEP_VERSION: '1.1.0'
+          GH_TOKEN: ${{ github.token }}
         run: |
           gh release download "$APKEEP_VERSION" -R EFForg/apkeep -p apkeep-x86_64-unknown-linux-gnu -O /usr/local/bin/apkeep --clobber
           chmod +x /usr/local/bin/apkeep
